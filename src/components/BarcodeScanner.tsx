@@ -22,6 +22,7 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onDetected }) => {
   useEffect(() => {
     // This ref will persist across re-renders, preventing re-initialization.
     if (!scannerRef.current) {
+      // The 'false' verbose flag is important to prevent excessive logging.
       scannerRef.current = new Html5Qrcode(scannerRegionId, false);
     }
     const scanner = scannerRef.current;
@@ -65,7 +66,7 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onDetected }) => {
         };
 
         const errorCallback = (errorMessage: string) => {
-          // This is called frequently, so we ignore it.
+          // This is called frequently on non-scans, so we ignore it.
         };
 
         await scanner.start(
