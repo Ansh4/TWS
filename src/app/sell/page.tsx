@@ -74,6 +74,26 @@ export default function SellPage() {
     }
   
     let isMounted = true;
+
+    const onDetected = (data: any) => {
+        if (data?.codeResult?.code && isMounted) {
+            Quagga.offDetected(onDetected);
+            Quagga.stop();
+            isMounted = false;
+
+            setIsScannerOpen(false);
+            const product = products.find(p => p.barcode === data.codeResult.code);
+            if (product) {
+                addScannedItemToCart(product);
+            } else {
+                toast({
+                    title: 'Product Not Found',
+                    description: `No product with barcode ${data.codeResult.code} found.`,
+                    variant: 'destructive',
+                });
+            }
+        }
+    };
   
     const initScanner = async () => {
       try {
@@ -98,33 +118,18 @@ export default function SellPage() {
           if (err) {
             console.error("QuaggaJS init error:", err);
             if (isMounted) {
+              setHasCameraPermission(false);
               toast({
                 variant: 'destructive',
                 title: 'Scanner Error',
-                description: 'Could not initialize barcode scanner. Please try again.',
+                description: 'Could not initialize barcode scanner.',
               });
             }
             return;
           }
-          if (isMounted) Quagga.start();
-        });
-  
-        Quagga.onDetected((data) => {
-          if (data?.codeResult?.code) {
-            if (isMounted) {
-              Quagga.stop();
-              setIsScannerOpen(false);
-              const product = products.find(p => p.barcode === data.codeResult.code);
-              if (product) {
-                addScannedItemToCart(product);
-              } else {
-                toast({
-                  title: 'Product Not Found',
-                  description: `No product with barcode ${data.codeResult.code} found.`,
-                  variant: 'destructive',
-                });
-              }
-            }
+          if (isMounted) {
+             Quagga.onDetected(onDetected);
+             Quagga.start();
           }
         });
       } catch (err) {
@@ -146,6 +151,7 @@ export default function SellPage() {
   
     return () => {
       isMounted = false;
+      Quagga.offDetected(onDetected);
       Quagga.stop();
     };
   }, [isScannerOpen, products, toast, addScannedItemToCart]);

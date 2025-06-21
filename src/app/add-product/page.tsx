@@ -108,6 +108,23 @@ export default function AddProductPage() {
 
     let isMounted = true;
 
+    const onDetected = (data: any) => {
+      if (data?.codeResult?.code && isMounted) {
+        Quagga.offDetected(onDetected); // Stop listening to avoid multiple triggers
+        Quagga.stop();
+        isMounted = false; // Prevent further state updates from this effect
+        
+        setIsScannerOpen(false);
+        const barcode = data.codeResult.code;
+        form.setValue('barcode', barcode);
+        toast({
+          title: 'Barcode Scanned!',
+          description: `Automatically fetching details for ${barcode}`,
+        });
+        handleFetchDetails(barcode);
+      }
+    };
+
     const initScanner = async () => {
       try {
         await navigator.mediaDevices.getUserMedia({ video: true });
@@ -131,30 +148,18 @@ export default function AddProductPage() {
           if (err) {
             console.error("QuaggaJS init error:", err);
             if (isMounted) {
+              setHasCameraPermission(false);
               toast({
                   variant: 'destructive',
                   title: 'Scanner Error',
-                  description: 'Could not initialize barcode scanner. Please try again.',
+                  description: 'Could not initialize barcode scanner.',
               });
             }
-            return
+            return;
           }
-          if (isMounted) Quagga.start();
-        });
-
-        Quagga.onDetected((data) => {
-          if (data?.codeResult?.code) {
-            if (isMounted) {
-              Quagga.stop();
-              setIsScannerOpen(false);
-              const barcode = data.codeResult.code;
-              form.setValue('barcode', barcode);
-              toast({
-                title: 'Barcode Scanned!',
-                description: `Automatically fetching details for ${barcode}`,
-              });
-              handleFetchDetails(barcode);
-            }
+          if (isMounted) {
+            Quagga.onDetected(onDetected);
+            Quagga.start();
           }
         });
       } catch (err) {
@@ -176,9 +181,11 @@ export default function AddProductPage() {
 
     return () => {
       isMounted = false;
+      // It's important to remove the listener and stop the scanner on cleanup
+      Quagga.offDetected(onDetected);
       Quagga.stop();
     };
-}, [isScannerOpen, form, toast, handleFetchDetails]);
+  }, [isScannerOpen, form, toast, handleFetchDetails]);
 
   const onSubmit = (values: z.infer<typeof formSchema>) => {
     if(getProductByBarcode(values.barcode)) {
