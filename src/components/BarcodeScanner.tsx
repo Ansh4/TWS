@@ -10,80 +10,98 @@ interface BarcodeScannerProps {
 }
 
 const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onDetected }) => {
-  const scannerRef = useRef<HTMLDivElement>(null);
-  const qrCodeScannerRef = useRef<Html5Qrcode | null>(null);
+  const scannerRegionRef = useRef<HTMLDivElement>(null);
+  const scannerInstanceRef = useRef<Html5Qrcode | null>(null);
   const { toast } = useToast();
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
 
   useEffect(() => {
-    if (!scannerRef.current) return;
+    // Prevent the effect from running twice in development strict mode,
+    // which would create a second scanner instance.
+    if (!scannerRegionRef.current || scannerInstanceRef.current) {
+      return;
+    }
 
-    const qrCodeScanner = new Html5Qrcode(scannerRef.current.id, false);
-    qrCodeScannerRef.current = qrCodeScanner;
+    const scanner = new Html5Qrcode(scannerRegionRef.current.id, false);
+    scannerInstanceRef.current = scanner;
 
     const startScanner = async () => {
       try {
-        await navigator.mediaDevices.getUserMedia({ video: true });
+        // First, check for camera permissions
+        await Html5Qrcode.getCameras();
         setHasPermission(true);
 
         const config = {
           fps: 10,
           qrbox: (w: number, h: number) => ({ width: w * 0.8, height: h * 0.5 }),
           supportedScanTypes: [],
-           formatsToSupport: [
+          formatsToSupport: [
             Html5QrcodeSupportedFormats.EAN_13,
             Html5QrcodeSupportedFormats.EAN_8,
             Html5QrcodeSupportedFormats.UPC_A,
             Html5QrcodeSupportedFormats.UPC_E,
             Html5QrcodeSupportedFormats.CODE_128,
             Html5QrcodeSupportedFormats.ITF,
-          ]
+          ],
         };
+
         const successCallback = (decodedText: string) => {
-            onDetected(decodedText);
+          // Stop scanning and then call the parent handler.
+          // This prevents a race condition where the parent unmounts this component
+          // before we can cleanly stop the scanner.
+          if (scannerInstanceRef.current?.isScanning) {
+            scannerInstanceRef.current.stop()
+              .then(() => {
+                onDetected(decodedText);
+              })
+              .catch((err) => {
+                console.error("Failed to stop the scanner after success.", err);
+                // Still try to call onDetected
+                onDetected(decodedText);
+              });
+          }
         };
-        const errorCallback = (errorMessage: string) => { /* ignore */ };
-        
-        qrCodeScanner.start(
+
+        const errorCallback = (errorMessage: string) => {
+          // This callback is called frequently, so we typically ignore the errors.
+        };
+
+        await scanner.start(
           { facingMode: 'environment' },
           config,
           successCallback,
           errorCallback
-        ).catch(err => {
-            console.error('Scanner start failed', err);
-            toast({
-              variant: 'destructive',
-              title: 'Scanner Error',
-              description: 'Could not start the scanner.',
-            });
-        });
+        );
 
       } catch (err) {
-        console.error('Camera permission denied', err);
+        console.error('Error starting scanner:', err);
         setHasPermission(false);
         toast({
-            variant: 'destructive',
-            title: 'Camera Access Denied',
-            description: 'Please grant camera permissions in your browser settings.',
+          variant: 'destructive',
+          title: 'Scanner Error',
+          description: 'Could not start the scanner. Please grant camera permissions and ensure your camera is not in use by another application.',
         });
       }
     };
-    
+
     startScanner();
 
+    // Cleanup function to stop the scanner when the component unmounts
     return () => {
-      if (qrCodeScannerRef.current && qrCodeScannerRef.current.isScanning) {
-        // Checking for isScanning before calling stop
-        qrCodeScannerRef.current.stop().catch(err => {
-          console.error('Failed to stop scanner.', err);
+      if (scannerInstanceRef.current?.isScanning) {
+        scannerInstanceRef.current.stop().catch(err => {
+          // This can happen if the scanner is already stopped. Safe to ignore.
+          console.warn('Failed to stop scanner on cleanup, it might have been stopped already.', err);
         });
       }
+      scannerInstanceRef.current = null;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onDetected, toast]);
 
   return (
     <div>
-      <div id="barcode-scanner-container" ref={scannerRef} className="w-full aspect-video rounded-md bg-muted" />
+      <div id="barcode-scanner-region" ref={scannerRegionRef} className="w-full aspect-video rounded-md bg-muted" />
       {hasPermission === false && (
         <Alert variant="destructive" className="mt-4">
           <AlertTitle>Camera Access Required</AlertTitle>
