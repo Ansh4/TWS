@@ -16,8 +16,6 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onDetected }) => {
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
 
   useEffect(() => {
-    // Prevent the effect from running twice in development strict mode,
-    // which would create a second scanner instance.
     if (!scannerRegionRef.current || scannerInstanceRef.current) {
       return;
     }
@@ -27,7 +25,6 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onDetected }) => {
 
     const startScanner = async () => {
       try {
-        // First, check for camera permissions
         await Html5Qrcode.getCameras();
         setHasPermission(true);
 
@@ -46,9 +43,6 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onDetected }) => {
         };
 
         const successCallback = (decodedText: string) => {
-          // Stop scanning and then call the parent handler.
-          // This prevents a race condition where the parent unmounts this component
-          // before we can cleanly stop the scanner.
           if (scannerInstanceRef.current?.isScanning) {
             scannerInstanceRef.current.stop()
               .then(() => {
@@ -56,7 +50,6 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onDetected }) => {
               })
               .catch((err) => {
                 console.error("Failed to stop the scanner after success.", err);
-                // Still try to call onDetected
                 onDetected(decodedText);
               });
           }
@@ -86,17 +79,14 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onDetected }) => {
 
     startScanner();
 
-    // Cleanup function to stop the scanner when the component unmounts
     return () => {
       if (scannerInstanceRef.current?.isScanning) {
         scannerInstanceRef.current.stop().catch(err => {
-          // This can happen if the scanner is already stopped. Safe to ignore.
           console.warn('Failed to stop scanner on cleanup, it might have been stopped already.', err);
         });
       }
       scannerInstanceRef.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onDetected, toast]);
 
   return (
