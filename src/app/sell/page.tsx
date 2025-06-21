@@ -68,73 +68,59 @@ export default function SellPage() {
   }, [toast]);
 
   useEffect(() => {
-    if (!isScannerOpen) {
-      Quagga.stop();
-      return;
-    }
-  
-    let isMounted = true;
-
-    const onDetected = (data: any) => {
-        if (data?.codeResult?.code && isMounted) {
-            Quagga.offDetected(onDetected);
-            Quagga.stop();
-            isMounted = false;
-
-            setIsScannerOpen(false);
-            const product = products.find(p => p.barcode === data.codeResult.code);
-            if (product) {
-                addScannedItemToCart(product);
-            } else {
-                toast({
-                    title: 'Product Not Found',
-                    description: `No product with barcode ${data.codeResult.code} found.`,
-                    variant: 'destructive',
-                });
-            }
+    const handleDetection = (result: any) => {
+      const code = result?.codeResult?.code;
+      if (code) {
+        Quagga.stop();
+        setIsScannerOpen(false);
+        const product = products.find(p => p.barcode === code);
+        if (product) {
+          addScannedItemToCart(product);
+        } else {
+          toast({
+            title: 'Product Not Found',
+            description: `No product with barcode ${code} found.`,
+            variant: 'destructive',
+          });
         }
+      }
     };
-  
-    const initScanner = async () => {
-      try {
-        await navigator.mediaDevices.getUserMedia({ video: true });
-        if (!isMounted) return;
-        setHasCameraPermission(true);
-  
-        Quagga.init({
-          inputStream: {
-            name: "Live",
-            type: "LiveStream",
-            target: scannerRef.current!,
-            constraints: {
-              facingMode: "environment"
+
+    const startScanner = async () => {
+      if (isScannerOpen && scannerRef.current) {
+        try {
+          await navigator.mediaDevices.getUserMedia({ video: true });
+          setHasCameraPermission(true);
+
+          Quagga.init({
+            inputStream: {
+              name: 'Live',
+              type: 'LiveStream',
+              target: scannerRef.current,
+              constraints: {
+                facingMode: 'environment',
+              },
             },
-          },
-          decoder: {
-            readers: ["ean_reader", "upc_reader", "code_128_reader", "ean_8_reader"]
-          },
-          locate: true,
-        }, (err) => {
-          if (err) {
-            console.error("QuaggaJS init error:", err);
-            if (isMounted) {
+            decoder: {
+              readers: ['ean_reader', 'upc_reader', 'code_128_reader', 'ean_8_reader'],
+            },
+            locate: true,
+          }, (err) => {
+            if (err) {
+              console.error('QuaggaJS init error:', err);
               setHasCameraPermission(false);
               toast({
                 variant: 'destructive',
                 title: 'Scanner Error',
                 description: 'Could not initialize barcode scanner.',
               });
+              return;
             }
-            return;
-          }
-          if (isMounted) {
-             Quagga.onDetected(onDetected);
-             Quagga.start();
-          }
-        });
-      } catch (err) {
-        console.error("Camera access denied:", err);
-        if (isMounted) {
+            Quagga.onDetected(handleDetection);
+            Quagga.start();
+          });
+        } catch (err) {
+          console.error('Camera access denied:', err);
           setHasCameraPermission(false);
           toast({
             variant: 'destructive',
@@ -144,15 +130,14 @@ export default function SellPage() {
         }
       }
     };
-  
-    if (scannerRef.current) {
-      initScanner();
-    }
-  
+
+    startScanner();
+
     return () => {
-      isMounted = false;
-      Quagga.offDetected(onDetected);
-      Quagga.stop();
+      if (Quagga.initialized) {
+        Quagga.offDetected(handleDetection);
+        Quagga.stop();
+      }
     };
   }, [isScannerOpen, products, toast, addScannedItemToCart]);
 
