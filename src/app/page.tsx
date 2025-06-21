@@ -40,7 +40,7 @@ export default function Home() {
     <div className="flex flex-col items-center">
       <div className="text-center mb-12">
         <h1 className="text-4xl md:text-5xl font-bold font-headline text-primary mb-2">
-          Welcome to StockFlow
+          Welcome to Kishor General Store
         </h1>
         <p className="text-lg text-muted-foreground">
           Your simple solution for inventory management.

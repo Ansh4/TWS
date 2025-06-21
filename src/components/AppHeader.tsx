@@ -9,7 +9,7 @@ export default function AppHeader() {
         <div className="flex items-center justify-between h-16">
           <Link href="/" className="flex items-center gap-2">
             <Package className="h-6 w-6 text-primary" />
-            <span className="text-xl font-bold font-headline">StockFlow</span>
+            <span className="text-xl font-bold font-headline">Kishor General Store</span>
           </Link>
           <nav className="hidden md:flex items-center gap-2">
             <Button variant="ghost" asChild>

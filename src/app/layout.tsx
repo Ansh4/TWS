@@ -5,7 +5,7 @@ import { ProductProvider } from '@/context/ProductContext';
 import AppHeader from '@/components/AppHeader';
 
 export const metadata: Metadata = {
-  title: 'StockFlow',
+  title: 'Kishor General Store',
   description: 'Manage your inventory with ease.',
 };
 
