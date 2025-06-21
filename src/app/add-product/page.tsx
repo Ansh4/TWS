@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -27,8 +27,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import Quagga from '@ericblade/quagga2';
+import BarcodeScanner from '@/components/BarcodeScanner';
 
 const formSchema = z.object({
   barcode: z.string().min(1, 'Barcode is required'),
@@ -45,8 +44,6 @@ export default function AddProductPage() {
   const { toast } = useToast();
   const [isFetching, setIsFetching] = useState(false);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
-  const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
-  const scannerRef = useRef<HTMLDivElement>(null);
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -100,75 +97,15 @@ export default function AddProductPage() {
     }
   }, [form, getProductByBarcode, toast]);
 
-  useEffect(() => {
-    const handleDetection = (result: any) => {
-      const code = result?.codeResult?.code;
-      if (code) {
-        Quagga.stop();
-        setIsScannerOpen(false);
-        form.setValue('barcode', code);
-        toast({
-          title: 'Barcode Scanned!',
-          description: `Automatically fetching details for ${code}`,
-        });
-        handleFetchDetails(code);
-      }
-    };
-
-    const startScanner = async () => {
-      if (isScannerOpen && scannerRef.current) {
-        try {
-          await navigator.mediaDevices.getUserMedia({ video: true });
-          setHasCameraPermission(true);
-
-          Quagga.init({
-            inputStream: {
-              name: 'Live',
-              type: 'LiveStream',
-              target: scannerRef.current,
-              constraints: {
-                facingMode: 'environment',
-              },
-            },
-            decoder: {
-              readers: ['ean_reader', 'upc_reader', 'code_128_reader', 'ean_8_reader'],
-            },
-            locate: true,
-          }, (err) => {
-            if (err) {
-              console.error('QuaggaJS init error:', err);
-              setHasCameraPermission(false);
-              toast({
-                variant: 'destructive',
-                title: 'Scanner Error',
-                description: 'Could not initialize barcode scanner.',
-              });
-              return;
-            }
-            Quagga.onDetected(handleDetection);
-            Quagga.start();
-          });
-        } catch (err) {
-          console.error('Camera access denied:', err);
-          setHasCameraPermission(false);
-          toast({
-            variant: 'destructive',
-            title: 'Camera Access Denied',
-            description: 'Please enable camera permissions in your browser settings to use the scanner.',
-          });
-        }
-      }
-    };
-
-    startScanner();
-
-    return () => {
-      if (Quagga.initialized) {
-        Quagga.offDetected(handleDetection);
-        Quagga.stop();
-      }
-    };
-  }, [isScannerOpen, form, toast, handleFetchDetails]);
+  const handleBarcodeScanned = useCallback((code: string) => {
+    setIsScannerOpen(false);
+    form.setValue('barcode', code);
+    toast({
+      title: 'Barcode Scanned!',
+      description: `Automatically fetching details for ${code}`,
+    });
+    handleFetchDetails(code);
+  }, [form, toast, handleFetchDetails]);
 
   const onSubmit = (values: z.infer<typeof formSchema>) => {
     if(getProductByBarcode(values.barcode)) {
@@ -224,17 +161,7 @@ export default function AddProductPage() {
                             Point your camera at a product's barcode to fill the form.
                           </DialogDescription>
                         </DialogHeader>
-                        <div>
-                          <div ref={scannerRef} className="w-full aspect-video rounded-md bg-muted" />
-                          {hasCameraPermission === false && (
-                            <Alert variant="destructive" className="mt-4">
-                              <AlertTitle>Camera Access Required</AlertTitle>
-                              <AlertDescription>
-                                Please allow camera access in your browser settings to use the scanner.
-                              </AlertDescription>
-                            </Alert>
-                          )}
-                        </div>
+                        {isScannerOpen && <BarcodeScanner onDetected={handleBarcodeScanned} />}
                       </DialogContent>
                     </Dialog>
                     <Button type="button" onClick={() => handleFetchDetails()} disabled={isFetching}>
