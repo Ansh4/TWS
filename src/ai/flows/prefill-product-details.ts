@@ -1,6 +1,6 @@
 'use server';
 /**
- * @fileOverview Retrieves product details from go-upc.com based on a barcode.
+ * @fileOverview Retrieves product details from Open Food Facts based on a barcode.
  *
  * - prefillProductDetails - A function that fetches product details based on the provided barcode.
  * - PrefillProductDetailsInput - The input type for the prefillProductDetails function.
@@ -36,7 +36,8 @@ export async function prefillProductDetails(
 const getProductInfo = ai.defineTool(
   {
     name: 'getProductInfo',
-    description: 'Retrieves product information from go-upc.com based on the barcode.',
+    description:
+      'Retrieves product information from the Open Food Facts public database based on the barcode.',
     inputSchema: z.object({
       barcode: z
         .string()
@@ -49,7 +50,7 @@ const getProductInfo = ai.defineTool(
   },
   async input => {
     const response = await fetch(
-      `https://go-upc.com/search?q=${input.barcode}`
+      `https://world.openfoodfacts.org/api/v0/product/${input.barcode}.json`
     );
     if (!response.ok) {
       throw new Error(
@@ -57,18 +58,15 @@ const getProductInfo = ai.defineTool(
       );
     }
 
-    const html = await response.text();
+    const data = await response.json();
 
-    // Basic parsing of the HTML content to extract product name and description.
-    // This is a rudimentary example and might need adjustments based on the
-    // actual structure of the go-upc.com response.
-    const productNameMatch = html.match(/<h1 class=".*?">(.+?)<\/h1>/);
-    const descriptionMatch = html.match(
-      /<div class="description">\s*<p>(.*?)<\/p>\s*<\/div>/
-    );
+    if (data.status === 0 || !data.product) {
+      return {productName: '', description: ''};
+    }
 
-    const productName = productNameMatch ? productNameMatch[1] : '';
-    const description = descriptionMatch ? descriptionMatch[1] : '';
+    const productName = data.product.product_name || '';
+    const description =
+      data.product.generic_name_en || data.product.categories || '';
 
     return {productName, description};
   }
