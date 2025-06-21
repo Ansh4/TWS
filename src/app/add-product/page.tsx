@@ -28,7 +28,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import jsQR from 'jsqr';
+import Quagga from '@ericblade/quagga2';
 
 const formSchema = z.object({
   barcode: z.string().min(1, 'Barcode is required'),
@@ -46,8 +46,7 @@ export default function AddProductPage() {
   const [isFetching, setIsFetching] = useState(false);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const scannerRef = useRef<HTMLDivElement>(null);
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -103,81 +102,83 @@ export default function AddProductPage() {
 
   useEffect(() => {
     if (!isScannerOpen) {
+      Quagga.stop();
       return;
     }
 
-    let stream: MediaStream | null = null;
-    let animationFrameId: number;
-    let isScanning = true;
+    let isMounted = true;
 
-    const tick = () => {
-      if (!isScanning) return;
-
-      if (videoRef.current && videoRef.current.readyState === videoRef.current.HAVE_ENOUGH_DATA && canvasRef.current) {
-        const video = videoRef.current;
-        const canvas = canvasRef.current;
-        const ctx = canvas.getContext('2d');
-
-        if (ctx) {
-          canvas.height = video.videoHeight;
-          canvas.width = video.videoWidth;
-          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-          const code = jsQR(imageData.data, imageData.width, imageData.height, {
-            inversionAttempts: 'both',
-          });
-
-          if (code) {
-            isScanning = false;
-            form.setValue('barcode', code.data);
-            toast({
-              title: 'Barcode Scanned!',
-              description: `Automatically fetching details for ${code.data}`,
-            });
-            handleFetchDetails(code.data);
-            setIsScannerOpen(false);
-            return;
-          }
-        }
-      }
-      if (isScanning) {
-        animationFrameId = requestAnimationFrame(tick);
-      }
-    };
-
-    const getCamera = async () => {
+    const initScanner = async () => {
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+        await navigator.mediaDevices.getUserMedia({ video: true });
+        if (!isMounted) return;
         setHasCameraPermission(true);
 
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.play();
-          requestAnimationFrame(tick);
-        }
-      } catch (error) {
-        console.error('Error accessing camera:', error);
-        setHasCameraPermission(false);
-        toast({
-          variant: 'destructive',
-          title: 'Camera Access Denied',
-          description: 'Please enable camera permissions to use the scanner.',
+        Quagga.init({
+          inputStream: {
+            name: "Live",
+            type: "LiveStream",
+            target: scannerRef.current!,
+            constraints: {
+                facingMode: "environment"
+            },
+          },
+          decoder: {
+            readers: ["ean_reader", "upc_reader", "code_128_reader", "ean_8_reader"]
+          },
+          locate: true,
+        }, (err) => {
+          if (err) {
+            console.error("QuaggaJS init error:", err);
+            if (isMounted) {
+              toast({
+                  variant: 'destructive',
+                  title: 'Scanner Error',
+                  description: 'Could not initialize barcode scanner. Please try again.',
+              });
+            }
+            return
+          }
+          if (isMounted) Quagga.start();
         });
+
+        Quagga.onDetected((data) => {
+          if (data?.codeResult?.code) {
+            if (isMounted) {
+              Quagga.stop();
+              setIsScannerOpen(false);
+              const barcode = data.codeResult.code;
+              form.setValue('barcode', barcode);
+              toast({
+                title: 'Barcode Scanned!',
+                description: `Automatically fetching details for ${barcode}`,
+              });
+              handleFetchDetails(barcode);
+            }
+          }
+        });
+      } catch (err) {
+        console.error("Camera access denied:", err);
+        if (isMounted) {
+          setHasCameraPermission(false);
+          toast({
+            variant: 'destructive',
+            title: 'Camera Access Denied',
+            description: 'Please enable camera permissions in your browser settings to use the scanner.',
+          });
+        }
       }
     };
 
-    getCamera();
+    if (scannerRef.current) {
+      initScanner();
+    }
 
     return () => {
-      isScanning = false;
-      if (stream) {
-        stream.getTracks().forEach(track => track.stop());
-      }
-      if (animationFrameId) {
-        cancelAnimationFrame(animationFrameId);
-      }
+      isMounted = false;
+      Quagga.stop();
     };
-  }, [isScannerOpen, form, toast, handleFetchDetails]);
+}, [isScannerOpen, form, toast, handleFetchDetails]);
 
   const onSubmit = (values: z.infer<typeof formSchema>) => {
     if(getProductByBarcode(values.barcode)) {
@@ -234,8 +235,7 @@ export default function AddProductPage() {
                           </DialogDescription>
                         </DialogHeader>
                         <div>
-                          <video ref={videoRef} className="w-full aspect-video rounded-md bg-muted" autoPlay muted playsInline />
-                          <canvas ref={canvasRef} className="hidden" />
+                          <div ref={scannerRef} className="w-full aspect-video rounded-md bg-muted" />
                           {hasCameraPermission === false && (
                             <Alert variant="destructive" className="mt-4">
                               <AlertTitle>Camera Access Required</AlertTitle>
