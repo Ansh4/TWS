@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -19,6 +19,16 @@ import { useProducts } from '@/context/ProductContext';
 import { useToast } from '@/hooks/use-toast';
 import { prefillProductDetails } from '@/ai/flows/prefill-product-details';
 import { Loader2, ScanLine } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import jsQR from 'jsqr';
 
 const formSchema = z.object({
   barcode: z.string().min(1, 'Barcode is required'),
@@ -34,6 +44,10 @@ export default function AddProductPage() {
   const { addProduct, getProductByBarcode } = useProducts();
   const { toast } = useToast();
   const [isFetching, setIsFetching] = useState(false);
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -48,8 +62,8 @@ export default function AddProductPage() {
     },
   });
 
-  const handleFetchDetails = async () => {
-    const barcode = form.getValues('barcode');
+  const handleFetchDetails = useCallback(async (barcodeValue?: string) => {
+    const barcode = barcodeValue || form.getValues('barcode');
     if (!barcode) {
       form.setError('barcode', { message: 'Please enter a barcode first.' });
       return;
@@ -85,7 +99,83 @@ export default function AddProductPage() {
     } finally {
       setIsFetching(false);
     }
-  };
+  }, [form, getProductByBarcode, toast]);
+
+  useEffect(() => {
+    if (!isScannerOpen) {
+      return;
+    }
+
+    let stream: MediaStream | null = null;
+    let animationFrameId: number;
+    let isScanning = true;
+
+    const tick = () => {
+      if (!isScanning) return;
+
+      if (videoRef.current && videoRef.current.readyState === videoRef.current.HAVE_ENOUGH_DATA && canvasRef.current) {
+        const video = videoRef.current;
+        const canvas = canvasRef.current;
+        const ctx = canvas.getContext('2d');
+
+        if (ctx) {
+          canvas.height = video.videoHeight;
+          canvas.width = video.videoWidth;
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          const code = jsQR(imageData.data, imageData.width, imageData.height);
+
+          if (code) {
+            isScanning = false;
+            form.setValue('barcode', code.data);
+            toast({
+              title: 'Barcode Scanned!',
+              description: `Automatically fetching details for ${code.data}`,
+            });
+            handleFetchDetails(code.data);
+            setIsScannerOpen(false);
+            return;
+          }
+        }
+      }
+      if (isScanning) {
+        animationFrameId = requestAnimationFrame(tick);
+      }
+    };
+
+    const getCamera = async () => {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+        setHasCameraPermission(true);
+
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          videoRef.current.play();
+          requestAnimationFrame(tick);
+        }
+      } catch (error) {
+        console.error('Error accessing camera:', error);
+        setHasCameraPermission(false);
+        toast({
+          variant: 'destructive',
+          title: 'Camera Access Denied',
+          description: 'Please enable camera permissions to use the scanner.',
+        });
+      }
+    };
+
+    getCamera();
+
+    return () => {
+      isScanning = false;
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+      }
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+      }
+    };
+  }, [isScannerOpen, form, toast, handleFetchDetails]);
 
   const onSubmit = (values: z.infer<typeof formSchema>) => {
     if(getProductByBarcode(values.barcode)) {
@@ -127,10 +217,35 @@ export default function AddProductPage() {
                     <FormControl>
                       <Input placeholder="e.g., 8901030974328" {...field} />
                     </FormControl>
-                    <Button type="button" variant="outline" size="icon" onClick={() => toast({ title: 'Info', description: 'Camera scanning coming soon!'})}>
-                      <ScanLine className="h-4 w-4" />
-                    </Button>
-                    <Button type="button" onClick={handleFetchDetails} disabled={isFetching}>
+                    <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}>
+                      <DialogTrigger asChild>
+                        <Button type="button" variant="outline" size="icon">
+                          <ScanLine className="h-4 w-4" />
+                          <span className="sr-only">Scan Barcode</span>
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent>
+                        <DialogHeader>
+                          <DialogTitle>Scan Barcode</DialogTitle>
+                          <DialogDescription>
+                            Point your camera at a product's barcode to fill the form.
+                          </DialogDescription>
+                        </DialogHeader>
+                        <div>
+                          <video ref={videoRef} className="w-full aspect-video rounded-md bg-muted" autoPlay muted playsInline />
+                          <canvas ref={canvasRef} className="hidden" />
+                          {hasCameraPermission === false && (
+                            <Alert variant="destructive" className="mt-4">
+                              <AlertTitle>Camera Access Required</AlertTitle>
+                              <AlertDescription>
+                                Please allow camera access in your browser settings to use the scanner.
+                              </AlertDescription>
+                            </Alert>
+                          )}
+                        </div>
+                      </DialogContent>
+                    </Dialog>
+                    <Button type="button" onClick={() => handleFetchDetails()} disabled={isFetching}>
                       {isFetching && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                       Fetch Details
                     </Button>
