@@ -1,8 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { BrowserMultiFormatReader } from '@zxing/browser';
-import { DecodeHintType, BarcodeFormat } from '@zxing/library';
+import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
@@ -11,82 +10,90 @@ interface BarcodeScannerProps {
 }
 
 const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onDetected }) => {
-  const videoRef = useRef<HTMLVideoElement>(null);
+  const scannerRef = useRef<HTMLDivElement>(null);
+  const qrCodeScannerRef = useRef<Html5Qrcode | null>(null);
   const { toast } = useToast();
-  const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
+  const [hasPermission, setHasPermission] = useState<boolean | null>(null);
 
   useEffect(() => {
-    // Instantiate the reader directly within the effect. This ensures the cleanup
-    // function will close over this specific instance, avoiding ref-related issues.
-    const hints = new Map();
-    const formats = [
-      BarcodeFormat.UPC_A, BarcodeFormat.UPC_E,
-      BarcodeFormat.EAN_13, BarcodeFormat.EAN_8,
-      BarcodeFormat.CODE_39, BarcodeFormat.CODE_128,
-      BarcodeFormat.ITF, BarcodeFormat.QR_CODE,
-    ];
-    hints.set(DecodeHintType.POSSIBLE_FORMATS, formats);
-    const codeReader = new BrowserMultiFormatReader(hints);
+    if (!scannerRef.current) return;
+
+    const qrCodeScanner = new Html5Qrcode(scannerRef.current.id, false);
+    qrCodeScannerRef.current = qrCodeScanner;
 
     const startScanner = async () => {
-      if (!videoRef.current) return;
-
       try {
-        // Request camera permission and start the video stream
-        await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-        setHasCameraPermission(true);
+        await navigator.mediaDevices.getUserMedia({ video: true });
+        setHasPermission(true);
 
-        // Start decoding from the video element.
-        codeReader.decodeFromVideoDevice(undefined, videoRef.current, (result, error) => {
-          if (result) {
-            onDetected(result.getText());
-          }
-          if (error && error.name !== 'NotFoundException') {
-            console.error('Barcode scan error:', error);
-          }
+        const config = {
+          fps: 10,
+          qrbox: (w: number, h: number) => ({ width: w * 0.8, height: h * 0.5 }),
+          supportedScanTypes: [],
+           formatsToSupport: [
+            Html5QrcodeSupportedFormats.EAN_13,
+            Html5QrcodeSupportedFormats.EAN_8,
+            Html5QrcodeSupportedFormats.UPC_A,
+            Html5QrcodeSupportedFormats.UPC_E,
+            Html5QrcodeSupportedFormats.CODE_128,
+            Html5QrcodeSupportedFormats.ITF,
+          ]
+        };
+        const successCallback = (decodedText: string) => {
+            onDetected(decodedText);
+        };
+        const errorCallback = (errorMessage: string) => { /* ignore */ };
+        
+        qrCodeScanner.start(
+          { facingMode: 'environment' },
+          config,
+          successCallback,
+          errorCallback
+        ).catch(err => {
+            console.error('Scanner start failed', err);
+            toast({
+              variant: 'destructive',
+              title: 'Scanner Error',
+              description: 'Could not start the scanner.',
+            });
         });
 
-      } catch (err: any) {
-        console.error('Camera access error:', err);
-        setHasCameraPermission(false);
-        let description = 'Could not access camera. Please grant camera permission in your browser settings.';
-        if (err.name === 'NotAllowedError') {
-          description = 'Camera permission was denied. Please grant permission in your browser settings.';
-        } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
-           description = 'No camera found. Please ensure a camera is connected and enabled.';
-        }
+      } catch (err) {
+        console.error('Camera permission denied', err);
+        setHasPermission(false);
         toast({
-          variant: 'destructive',
-          title: 'Camera Error',
-          description,
+            variant: 'destructive',
+            title: 'Camera Access Denied',
+            description: 'Please grant camera permissions in your browser settings.',
         });
       }
     };
-
+    
     startScanner();
 
-    // The cleanup function will now have the correct `codeReader` instance in its scope.
     return () => {
-      codeReader.reset();
+      if (qrCodeScannerRef.current && qrCodeScannerRef.current.isScanning) {
+        // Checking for isScanning before calling stop
+        qrCodeScannerRef.current.stop().catch(err => {
+          console.error('Failed to stop scanner.', err);
+        });
+      }
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onDetected, toast]);
 
   return (
     <div>
-      <video ref={videoRef} className="w-full aspect-video rounded-md bg-muted" autoPlay muted playsInline />
-       {hasCameraPermission === null && (
-         <div className="absolute inset-0 flex items-center justify-center bg-background/80 rounded-md">
-            <p className="text-muted-foreground">Requesting camera permission...</p>
-         </div>
-      )}
-      {hasCameraPermission === false && (
+      <div id="barcode-scanner-container" ref={scannerRef} className="w-full aspect-video rounded-md bg-muted" />
+      {hasPermission === false && (
         <Alert variant="destructive" className="mt-4">
           <AlertTitle>Camera Access Required</AlertTitle>
           <AlertDescription>
-            Camera access was denied or is not available. Please grant permission in your browser settings.
+            Please grant camera permissions in your browser settings to use the scanner.
           </AlertDescription>
         </Alert>
+      )}
+      {hasPermission === null && (
+         <div className="mt-2 text-center text-muted-foreground">Requesting camera permission...</div>
       )}
     </div>
   );
