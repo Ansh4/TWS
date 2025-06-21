@@ -1,7 +1,11 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
-import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
+import { useEffect, useRef } from 'react';
+import {
+  Html5Qrcode,
+  Html5QrcodeSupportedFormats,
+  Html5QrcodeScannerState,
+} from 'html5-qrcode';
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
@@ -9,28 +13,32 @@ interface BarcodeScannerProps {
   onDetected: (code: string) => void;
 }
 
+const scannerRegionId = 'barcode-scanner-region';
+
 const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onDetected }) => {
-  const scannerRegionRef = useRef<HTMLDivElement>(null);
-  const scannerInstanceRef = useRef<Html5Qrcode | null>(null);
+  const scannerRef = useRef<Html5Qrcode | null>(null);
   const { toast } = useToast();
-  const [hasPermission, setHasPermission] = useState<boolean | null>(null);
 
   useEffect(() => {
-    if (!scannerRegionRef.current || scannerInstanceRef.current) {
+    // Initialize the scanner instance if it doesn't exist.
+    // This ref will persist across re-renders, preventing re-initialization.
+    if (!scannerRef.current) {
+      scannerRef.current = new Html5Qrcode(scannerRegionId, false);
+    }
+    const scanner = scannerRef.current;
+
+    // Do nothing if scanner is already active. This prevents the double-camera
+    // issue in React's Strict Mode.
+    if (scanner.getState() === Html5QrcodeScannerState.SCANNING) {
       return;
     }
-
-    const scanner = new Html5Qrcode(scannerRegionRef.current.id, false);
-    scannerInstanceRef.current = scanner;
-
-    const startScanner = async () => {
+    
+    const start = async () => {
       try {
         await Html5Qrcode.getCameras();
-        setHasPermission(true);
-
         const config = {
           fps: 10,
-          qrbox: (w: number, h: number) => ({ width: w * 0.8, height: h * 0.5 }),
+          qrbox: (w: number, h: number) => ({ width: w * 0.8, height: h * 0.6 }),
           supportedScanTypes: [],
           formatsToSupport: [
             Html5QrcodeSupportedFormats.EAN_13,
@@ -43,14 +51,12 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onDetected }) => {
         };
 
         const successCallback = (decodedText: string) => {
-          // Just call the parent component's callback. The parent will handle
-          // closing the dialog, which triggers this component to unmount
-          // and run the cleanup function below. This avoids race conditions.
+          // The parent component will handle closing the dialog, which
+          // will trigger the cleanup function of this effect.
           onDetected(decodedText);
         };
-
         const errorCallback = (errorMessage: string) => {
-          // This callback is called frequently, so we typically ignore the errors.
+          // This is called frequently, so we ignore it.
         };
 
         await scanner.start(
@@ -59,46 +65,40 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onDetected }) => {
           successCallback,
           errorCallback
         );
-
       } catch (err) {
-        console.error('Error starting scanner:', err);
-        setHasPermission(false);
         toast({
           variant: 'destructive',
           title: 'Scanner Error',
-          description: 'Could not start the scanner. Please grant camera permissions and ensure your camera is not in use by another application.',
+          description:
+            'Could not start scanner. Please grant camera permissions and try again.',
         });
       }
     };
+    
+    start();
 
-    startScanner();
-
-    // This cleanup function will be called when the component is unmounted.
+    // The cleanup function is critical for stopping the scanner properly.
     return () => {
-      if (scannerInstanceRef.current?.isScanning) {
-        scannerInstanceRef.current.stop().catch(err => {
-          // This can happen if the scanner is already stopped, so we'll just log a warning.
-          console.warn('Failed to stop scanner on cleanup, it might have been stopped already.', err);
+      if (scannerRef.current && scannerRef.current.isScanning) {
+        scannerRef.current.stop().catch((error) => {
+          // This can happen if the scanner is already stopped or is in a weird state.
+          console.error("Failed to stop the scanner.", error);
         });
       }
-      scannerInstanceRef.current = null;
     };
   }, [onDetected, toast]);
 
   return (
     <div>
-      <div id="barcode-scanner-region" ref={scannerRegionRef} className="w-full aspect-video rounded-md bg-muted" />
-      {hasPermission === false && (
-        <Alert variant="destructive" className="mt-4">
-          <AlertTitle>Camera Access Required</AlertTitle>
-          <AlertDescription>
-            Please grant camera permissions in your browser settings to use the scanner.
-          </AlertDescription>
-        </Alert>
-      )}
-      {hasPermission === null && (
-         <div className="mt-2 text-center text-muted-foreground">Requesting camera permission...</div>
-      )}
+      {/* The div for the scanner to attach to */}
+      <div id={scannerRegionId} className="w-full aspect-video rounded-md bg-muted" />
+
+      <Alert className="mt-4" variant="default">
+        <AlertTitle>Scanning Tip</AlertTitle>
+        <AlertDescription>
+          Center the product's barcode in the box. Make sure it's well-lit and in focus. Some barcodes may not scan if they have an invalid format.
+        </AlertDescription>
+      </Alert>
     </div>
   );
 };
