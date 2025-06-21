@@ -31,6 +31,7 @@ import BarcodeScanner from '@/components/BarcodeScanner';
 
 const formSchema = z.object({
   barcode: z.string().min(1, 'Barcode is required'),
+  ean: z.string().optional(),
   name: z.string().min(2, 'Product name is required'),
   description: z.string().optional(),
   mrp: z.coerce.number().min(0, 'MRP must be a positive number'),
@@ -49,6 +50,7 @@ export default function AddProductPage() {
     resolver: zodResolver(formSchema),
     defaultValues: {
       barcode: '',
+      ean: '',
       name: '',
       description: '',
       mrp: 0,
@@ -64,6 +66,7 @@ export default function AddProductPage() {
       form.setError('barcode', { message: 'Please enter a barcode first.' });
       return;
     }
+    form.setValue('ean', barcode);
     if(getProductByBarcode(barcode)) {
       toast({
         title: 'Product Exists',
@@ -100,6 +103,7 @@ export default function AddProductPage() {
   const handleBarcodeScanned = useCallback((code: string) => {
     setIsScannerOpen(false);
     form.setValue('barcode', code);
+    form.setValue('ean', code);
     toast({
       title: 'Barcode Scanned!',
       description: `Automatically fetching details for ${code}`,
@@ -119,6 +123,7 @@ export default function AddProductPage() {
     addProduct({
       id: values.barcode,
       ...values,
+      ean: values.ean || values.barcode,
       description: values.description || '',
     });
     toast({
@@ -137,42 +142,57 @@ export default function AddProductPage() {
       <CardContent>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-            <FormField
-              control={form.control}
-              name="barcode"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Barcode</FormLabel>
-                  <div className="flex gap-2">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+               <FormField
+                control={form.control}
+                name="barcode"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Barcode</FormLabel>
+                    <div className="flex gap-2">
+                      <FormControl>
+                        <Input placeholder="e.g., 8901030974328" {...field} />
+                      </FormControl>
+                      <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}>
+                        <DialogTrigger asChild>
+                          <Button type="button" variant="outline" size="icon">
+                            <ScanLine className="h-4 w-4" />
+                            <span className="sr-only">Scan Barcode</span>
+                          </Button>
+                        </DialogTrigger>
+                        <DialogContent>
+                          <DialogHeader>
+                            <DialogTitle>Scan Barcode</DialogTitle>
+                            <DialogDescription>
+                              Point your camera at a product's barcode to fill the form.
+                            </DialogDescription>
+                          </DialogHeader>
+                          {isScannerOpen && <BarcodeScanner onDetected={handleBarcodeScanned} />}
+                        </DialogContent>
+                      </Dialog>
+                    </div>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+               <FormField
+                control={form.control}
+                name="ean"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>EAN</FormLabel>
                     <FormControl>
-                      <Input placeholder="e.g., 8901030974328" {...field} />
+                      <Input placeholder="Prefilled from barcode" {...field} readOnly />
                     </FormControl>
-                    <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}>
-                      <DialogTrigger asChild>
-                        <Button type="button" variant="outline" size="icon">
-                          <ScanLine className="h-4 w-4" />
-                          <span className="sr-only">Scan Barcode</span>
-                        </Button>
-                      </DialogTrigger>
-                      <DialogContent>
-                        <DialogHeader>
-                          <DialogTitle>Scan Barcode</DialogTitle>
-                          <DialogDescription>
-                            Point your camera at a product's barcode to fill the form.
-                          </DialogDescription>
-                        </DialogHeader>
-                        {isScannerOpen && <BarcodeScanner onDetected={handleBarcodeScanned} />}
-                      </DialogContent>
-                    </Dialog>
-                    <Button type="button" onClick={() => handleFetchDetails()} disabled={isFetching}>
-                      {isFetching && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                      Fetch Details
-                    </Button>
-                  </div>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+             <Button type="button" onClick={() => handleFetchDetails()} disabled={isFetching}>
+                {isFetching && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Fetch Details
+              </Button>
             <FormField
               control={form.control}
               name="name"

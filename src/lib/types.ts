@@ -1,6 +1,7 @@
 export type Product = {
   id: string;
   barcode: string;
+  ean: string;
   name: string;
   description: string;
   mrp: number;
