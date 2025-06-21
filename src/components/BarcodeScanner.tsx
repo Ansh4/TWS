@@ -1,10 +1,9 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { BrowserMultiFormatReader } from '@zxing/browser';
+import { BrowserMultiFormatReader, DecodeHintType, BarcodeFormat } from '@zxing/browser';
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { DecodeHintType, BarcodeFormat } from '@zxing/library';
 
 interface BarcodeScannerProps {
   onDetected: (code: string) => void;
@@ -12,31 +11,24 @@ interface BarcodeScannerProps {
 
 const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onDetected }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
-  // We use a ref for the code reader instance so it's stable across re-renders.
-  const codeReaderRef = useRef<BrowserMultiFormatReader | null>(null);
   const { toast } = useToast();
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
 
   useEffect(() => {
-    // Initialize the code reader on the client-side
-    if (!codeReaderRef.current) {
-      const hints = new Map();
-      const formats = [
-        BarcodeFormat.UPC_A,
-        BarcodeFormat.UPC_E,
-        BarcodeFormat.EAN_13,
-        BarcodeFormat.EAN_8,
-        BarcodeFormat.CODE_39,
-        BarcodeFormat.CODE_128,
-        BarcodeFormat.ITF,
-        BarcodeFormat.QR_CODE,
-      ];
-      hints.set(DecodeHintType.POSSIBLE_FORMATS, formats);
-      codeReaderRef.current = new BrowserMultiFormatReader(hints);
-    }
-    
+    // Instantiate the reader directly within the effect. This ensures the cleanup
+    // function will close over this specific instance, avoiding ref-related issues.
+    const hints = new Map();
+    const formats = [
+      BarcodeFormat.UPC_A, BarcodeFormat.UPC_E,
+      BarcodeFormat.EAN_13, BarcodeFormat.EAN_8,
+      BarcodeFormat.CODE_39, BarcodeFormat.CODE_128,
+      BarcodeFormat.ITF, BarcodeFormat.QR_CODE,
+    ];
+    hints.set(DecodeHintType.POSSIBLE_FORMATS, formats);
+    const codeReader = new BrowserMultiFormatReader(hints);
+
     const startScanner = async () => {
-      if (!videoRef.current || !codeReaderRef.current) return;
+      if (!videoRef.current) return;
 
       try {
         // Request camera permission and start the video stream
@@ -44,15 +36,11 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onDetected }) => {
         setHasCameraPermission(true);
 
         // Start decoding from the video element.
-        // This is a continuous scan. The callback will be invoked for each frame.
-        codeReaderRef.current.decodeFromVideoDevice(undefined, videoRef.current, (result, error) => {
-          // A result is found
+        codeReader.decodeFromVideoDevice(undefined, videoRef.current, (result, error) => {
           if (result) {
             onDetected(result.getText());
           }
-          // NotFoundException is expected when no barcode is in frame, so we ignore it.
           if (error && error.name !== 'NotFoundException') {
-            // Log other errors to the console for debugging.
             console.error('Barcode scan error:', error);
           }
         });
@@ -76,12 +64,9 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onDetected }) => {
 
     startScanner();
 
-    // Cleanup function to gracefully stop the scanner.
+    // The cleanup function will now have the correct `codeReader` instance in its scope.
     return () => {
-      if (codeReaderRef.current) {
-        // reset() stops the decoding and releases the camera.
-        codeReaderRef.current.reset();
-      }
+      codeReader.reset();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onDetected, toast]);
