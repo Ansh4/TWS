@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { BrowserMultiFormatReader } from '@zxing/browser';
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { DecodeHintType, BarcodeFormat } from '@zxing/library';
 
 interface BarcodeScannerProps {
   onDetected: (code: string) => void;
@@ -11,31 +12,47 @@ interface BarcodeScannerProps {
 
 const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onDetected }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const codeReaderRef = useRef(new BrowserMultiFormatReader());
+  // We use a ref for the code reader instance so it's stable across re-renders.
+  const codeReaderRef = useRef<BrowserMultiFormatReader | null>(null);
   const { toast } = useToast();
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
-  const [isScanning, setIsScanning] = useState(false);
 
   useEffect(() => {
-    let controls: any;
-
+    // Initialize the code reader on the client-side
+    if (!codeReaderRef.current) {
+      const hints = new Map();
+      const formats = [
+        BarcodeFormat.UPC_A,
+        BarcodeFormat.UPC_E,
+        BarcodeFormat.EAN_13,
+        BarcodeFormat.EAN_8,
+        BarcodeFormat.CODE_39,
+        BarcodeFormat.CODE_128,
+        BarcodeFormat.ITF,
+        BarcodeFormat.QR_CODE,
+      ];
+      hints.set(DecodeHintType.POSSIBLE_FORMATS, formats);
+      codeReaderRef.current = new BrowserMultiFormatReader(hints);
+    }
+    
     const startScanner = async () => {
-      if (!videoRef.current || isScanning) {
-        return;
-      }
+      if (!videoRef.current || !codeReaderRef.current) return;
 
       try {
-        // 1. Get permission and stream
+        // Request camera permission and start the video stream
         await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
         setHasCameraPermission(true);
-        setIsScanning(true);
 
-        // 2. Start decoding from the video element
-        controls = codeReaderRef.current.decodeFromVideoDevice(undefined, videoRef.current, (result, error) => {
+        // Start decoding from the video element.
+        // This is a continuous scan. The callback will be invoked for each frame.
+        codeReaderRef.current.decodeFromVideoDevice(undefined, videoRef.current, (result, error) => {
+          // A result is found
           if (result) {
             onDetected(result.getText());
           }
+          // NotFoundException is expected when no barcode is in frame, so we ignore it.
           if (error && error.name !== 'NotFoundException') {
+            // Log other errors to the console for debugging.
             console.error('Barcode scan error:', error);
           }
         });
@@ -59,11 +76,11 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onDetected }) => {
 
     startScanner();
 
-    // Cleanup function
+    // Cleanup function to gracefully stop the scanner.
     return () => {
-      if (controls) {
-        controls.stop();
-        setIsScanning(false);
+      if (codeReaderRef.current) {
+        // reset() stops the decoding and releases the camera.
+        codeReaderRef.current.reset();
       }
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
