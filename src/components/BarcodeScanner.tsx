@@ -20,15 +20,13 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onDetected }) => {
   const { toast } = useToast();
 
   useEffect(() => {
-    // Initialize the scanner instance if it doesn't exist.
     // This ref will persist across re-renders, preventing re-initialization.
     if (!scannerRef.current) {
       scannerRef.current = new Html5Qrcode(scannerRegionId, false);
     }
     const scanner = scannerRef.current;
 
-    // Do nothing if scanner is already active. This prevents the double-camera
-    // issue in React's Strict Mode.
+    // This prevents the double-camera issue in React's Strict Mode.
     if (scanner.getState() === Html5QrcodeScannerState.SCANNING) {
       return;
     }
@@ -38,7 +36,7 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onDetected }) => {
         await Html5Qrcode.getCameras();
         const config = {
           fps: 10,
-          qrbox: (w: number, h: number) => ({ width: w * 0.8, height: h * 0.6 }),
+          qrbox: { width: 250, height: 150 },
           supportedScanTypes: [],
           formatsToSupport: [
             Html5QrcodeSupportedFormats.EAN_13,
@@ -51,10 +49,21 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onDetected }) => {
         };
 
         const successCallback = (decodedText: string) => {
-          // The parent component will handle closing the dialog, which
-          // will trigger the cleanup function of this effect.
-          onDetected(decodedText);
+          // Check if scanner is still active to prevent multiple callbacks.
+          if (scanner.isScanning) {
+            // Stop the scanner first, then call onDetected to prevent race conditions.
+            scanner.stop()
+              .then(() => {
+                onDetected(decodedText);
+              })
+              .catch((err) => {
+                console.error("Failed to stop scanner after success", err);
+                // Still proceed even if stopping fails.
+                onDetected(decodedText);
+              });
+          }
         };
+
         const errorCallback = (errorMessage: string) => {
           // This is called frequently, so we ignore it.
         };
@@ -77,12 +86,11 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onDetected }) => {
     
     start();
 
-    // The cleanup function is critical for stopping the scanner properly.
+    // The cleanup function is critical for stopping the scanner when the dialog is closed.
     return () => {
       if (scannerRef.current && scannerRef.current.isScanning) {
         scannerRef.current.stop().catch((error) => {
-          // This can happen if the scanner is already stopped or is in a weird state.
-          console.error("Failed to stop the scanner.", error);
+          console.error("Failed to stop the scanner during cleanup.", error);
         });
       }
     };
@@ -90,9 +98,7 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onDetected }) => {
 
   return (
     <div>
-      {/* The div for the scanner to attach to */}
       <div id={scannerRegionId} className="w-full aspect-video rounded-md bg-muted" />
-
       <Alert className="mt-4" variant="default">
         <AlertTitle>Scanning Tip</AlertTitle>
         <AlertDescription>
