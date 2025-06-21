@@ -90,7 +90,9 @@ export default function SellPage() {
           canvas.width = video.videoWidth;
           ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
           const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-          const code = jsQR(imageData.data, imageData.width, imageData.height);
+          const code = jsQR(imageData.data, imageData.width, imageData.height, {
+            inversionAttempts: 'both',
+          });
 
           if (code) {
             isScanning = false;
