@@ -29,18 +29,26 @@ interface ProductContextType {
 
 const ProductContext = createContext<ProductContextType | undefined>(undefined);
 
-const productsCollectionRef = collection(db, 'products');
-
 export const ProductProvider = ({ children }: { children: ReactNode }) => {
   const [products, setProducts] = useState<Product[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
+    // If db is not initialized, fallback to dummy data and skip firestore logic.
+    if (!db) {
+      console.warn('Firestore is not initialized. Using dummy data.');
+      setProducts(dummyProducts);
+      setIsLoading(false);
+      return;
+    }
+
+    const productsCollectionRef = collection(db, 'products');
+
     const unsubscribe = onSnapshot(
       productsCollectionRef,
       async (querySnapshot) => {
         if (querySnapshot.empty) {
-          // If the database is empty, seed it with dummy data.
+          // If the database is empty, we'll seed it. Don't set loading to false yet.
           console.log('No data found, seeding Firestore with dummy data...');
           const batch = writeBatch(db);
           dummyProducts.forEach((product) => {
@@ -49,20 +57,19 @@ export const ProductProvider = ({ children }: { children: ReactNode }) => {
             batch.set(docRef, productData);
           });
           await batch.commit();
-          // The snapshot listener will be triggered again by the write,
-          // which will then update the products state.
+          // The onSnapshot listener will be triggered again by this write,
+          // this time with data, and `isLoading` will be set to false in the `else` block.
         } else {
           const productList = querySnapshot.docs.map((doc) => ({
             id: doc.id,
             ...(doc.data() as Omit<Product, 'id'>),
           }));
           setProducts(productList);
+          setIsLoading(false);
         }
-        setIsLoading(false);
       },
       (error) => {
-        console.error('Firestore read failed: ', error);
-        // Fallback to dummy data on error
+        console.error('Firestore read failed, falling back to dummy data:', error);
         setProducts(dummyProducts);
         setIsLoading(false);
       }
@@ -72,6 +79,7 @@ export const ProductProvider = ({ children }: { children: ReactNode }) => {
   }, []);
 
   const addProduct = async (product: Product) => {
+    if (!db) return;
     try {
       const { id, ...productData } = product;
       const productDocRef = doc(db, 'products', id);
@@ -82,6 +90,7 @@ export const ProductProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const updateProduct = async (updatedProduct: Product) => {
+    if (!db) return;
     try {
       const { id, ...productData } = updatedProduct;
       const productDocRef = doc(db, 'products', id);
