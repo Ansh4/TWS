@@ -43,16 +43,10 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onDetected }) => {
         };
 
         const successCallback = (decodedText: string) => {
-          if (scannerInstanceRef.current?.isScanning) {
-            scannerInstanceRef.current.stop()
-              .then(() => {
-                onDetected(decodedText);
-              })
-              .catch((err) => {
-                console.error("Failed to stop the scanner after success.", err);
-                onDetected(decodedText);
-              });
-          }
+          // Just call the parent component's callback. The parent will handle
+          // closing the dialog, which triggers this component to unmount
+          // and run the cleanup function below. This avoids race conditions.
+          onDetected(decodedText);
         };
 
         const errorCallback = (errorMessage: string) => {
@@ -79,9 +73,11 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onDetected }) => {
 
     startScanner();
 
+    // This cleanup function will be called when the component is unmounted.
     return () => {
       if (scannerInstanceRef.current?.isScanning) {
         scannerInstanceRef.current.stop().catch(err => {
+          // This can happen if the scanner is already stopped, so we'll just log a warning.
           console.warn('Failed to stop scanner on cleanup, it might have been stopped already.', err);
         });
       }
