@@ -17,7 +17,6 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { useProducts } from '@/context/ProductContext';
 import { useToast } from '@/hooks/use-toast';
-import { prefillProductDetails } from '@/ai/flows/prefill-product-details';
 import { Loader2, ScanLine } from 'lucide-react';
 import {
   Dialog,
@@ -60,45 +59,67 @@ export default function AddProductPage() {
     },
   });
 
-  const handleFetchDetails = useCallback(async (barcodeValue?: string) => {
-    const barcode = barcodeValue || form.getValues('barcode');
-    if (!barcode) {
-      form.setError('barcode', { message: 'Please enter a barcode first.' });
-      return;
-    }
-    form.setValue('ean', barcode);
-    if(getProductByBarcode(barcode)) {
-      toast({
-        title: 'Product Exists',
-        description: 'A product with this barcode already exists.',
-        variant: 'destructive',
-      });
-      return;
-    }
-    setIsFetching(true);
-    try {
-      const details = await prefillProductDetails({ barcode });
-      if (details.productName) {
-        form.setValue('name', details.productName);
+  const handleFetchDetails = useCallback(
+    async (barcodeValue?: string) => {
+      const barcode = barcodeValue || form.getValues('barcode');
+      if (!barcode) {
+        form.setError('barcode', { message: 'Please enter a barcode first.' });
+        return;
       }
-      if (details.description) {
-        form.setValue('description', details.description);
+      form.setValue('ean', barcode);
+      if (getProductByBarcode(barcode)) {
+        toast({
+          title: 'Product Exists',
+          description: 'A product with this barcode already exists.',
+          variant: 'destructive',
+        });
+        return;
       }
-      toast({
-        title: 'Success',
-        description: 'Product details fetched successfully.',
-      });
-    } catch (error) {
-      toast({
-        title: 'Error',
-        description: 'Could not fetch product details. Please enter manually.',
-        variant: 'destructive',
-      });
-      console.error(error);
-    } finally {
-      setIsFetching(false);
-    }
-  }, [form, getProductByBarcode, toast]);
+      setIsFetching(true);
+      try {
+        const response = await fetch(
+          `https://world.openfoodfacts.org/api/v0/product/${barcode}.json`
+        );
+        if (!response.ok) {
+          throw new Error('Network response was not ok');
+        }
+        const data = await response.json();
+
+        if (data.status === 0 || !data.product) {
+          toast({
+            title: 'Not Found',
+            description: 'Product not found in the Open Food Facts database.',
+            variant: 'destructive',
+          });
+        } else {
+          const productName = data.product.product_name || '';
+          const description =
+            data.product.generic_name_en || data.product.categories || '';
+
+          if (productName) {
+            form.setValue('name', productName);
+          }
+          if (description) {
+            form.setValue('description', description);
+          }
+          toast({
+            title: 'Success',
+            description: 'Product details fetched successfully.',
+          });
+        }
+      } catch (error) {
+        toast({
+          title: 'Error',
+          description: 'Could not fetch product details. Please enter manually.',
+          variant: 'destructive',
+        });
+        console.error(error);
+      } finally {
+        setIsFetching(false);
+      }
+    },
+    [form, getProductByBarcode, toast]
+  );
 
   const handleBarcodeScanned = useCallback((code: string) => {
     setIsScannerOpen(false);
